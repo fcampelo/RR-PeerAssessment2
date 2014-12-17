@@ -1,0 +1,8 @@
+---
+title: "Consequences of Atmospheric Events<br>in the U.S.A."
+author: "Felipe Campelo, Ph.D."
+date: "December 17, 2014"
+output: html_document
+keep_md: TRUE
+---
+
