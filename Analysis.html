@@ -64,6 +64,119 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 </div>
 <div id="data-processing" class="section level2">
 <h2>Data Processing</h2>
+<p>The data used in this analysis refers to the <a href="http://www.ncdc.noaa.gov/stormevents/" title="NOAA Storm Events Database">U.S. National Oceanic and Atmospheric Administration’s (NOAA) storm database</a>, for the years between 1950 and 2011. The <a href="https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2" title="Data file">actual data file</a> (<strong>Warning</strong>: link to large download) was provided by the <a href="https://www.coursera.org/course/repdata" title="Reproducible Research">Reproducible Research</a> course instructors.</p>
+<p>Two other relevant files to this analysis are the <a href="https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf" title="Documentation">National Weather Service Storm Data Documentation</a> and the <a href="https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf" title="FAQ">National Climatic Data Center Storm Events FAQ</a>, both also provided by the course instructors.</p>
+<pre class="r"><code># If the data file isn't already on the working folder, download it from the server
+if(!file.exists(&quot;StormData.csv.bz2&quot;)){
+    download.file(url = &quot;https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2&quot;,
+                  destfile = &quot;StormData.csv.bz2&quot;,
+                  method = &quot;curl&quot;,
+                  quiet = TRUE)
+    }
+
+# If the file isn't already loaded, load it.
+# (go get yourself some coffee while you wait - this may take a while.)
+library(dplyr,warn.conflicts = FALSE)
+if(!exists(&quot;stormdata&quot;)){
+    stormdata&lt;-tbl_df(read.csv(bzfile(&quot;StormData.csv.bz2&quot;),strip.white=TRUE))
+    }</code></pre>
+<p>This is a large dataset, with almost a million observations of 37 variables related to storm events. We will only use a subset of these variables for our analysis.</p>
+<pre class="r"><code># Dimension of the data frame
+dim(stormdata)</code></pre>
+<pre><code>## [1] 902297     37</code></pre>
+<pre class="r"><code># Get variable names
+names(stormdata)</code></pre>
+<pre><code>##  [1] &quot;STATE__&quot;    &quot;BGN_DATE&quot;   &quot;BGN_TIME&quot;   &quot;TIME_ZONE&quot;  &quot;COUNTY&quot;    
+##  [6] &quot;COUNTYNAME&quot; &quot;STATE&quot;      &quot;EVTYPE&quot;     &quot;BGN_RANGE&quot;  &quot;BGN_AZI&quot;   
+## [11] &quot;BGN_LOCATI&quot; &quot;END_DATE&quot;   &quot;END_TIME&quot;   &quot;COUNTY_END&quot; &quot;COUNTYENDN&quot;
+## [16] &quot;END_RANGE&quot;  &quot;END_AZI&quot;    &quot;END_LOCATI&quot; &quot;LENGTH&quot;     &quot;WIDTH&quot;     
+## [21] &quot;F&quot;          &quot;MAG&quot;        &quot;FATALITIES&quot; &quot;INJURIES&quot;   &quot;PROPDMG&quot;   
+## [26] &quot;PROPDMGEXP&quot; &quot;CROPDMG&quot;    &quot;CROPDMGEXP&quot; &quot;WFO&quot;        &quot;STATEOFFIC&quot;
+## [31] &quot;ZONENAMES&quot;  &quot;LATITUDE&quot;   &quot;LONGITUDE&quot;  &quot;LATITUDE_E&quot; &quot;LONGITUDE_&quot;
+## [36] &quot;REMARKS&quot;    &quot;REFNUM&quot;</code></pre>
+<p>The columns we are interested in are:</p>
+<table>
+<colgroup>
+<col width="16%"></col>
+<col width="65%"></col>
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">Variable</th>
+<th align="left">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">EVTYPE</td>
+<td align="left">Type of event</td>
+</tr>
+<tr class="even">
+<td align="left">FATALITIES</td>
+<td align="left">Number of fatalities related to the event</td>
+</tr>
+<tr class="odd">
+<td align="left">INJURIES</td>
+<td align="left">Number of injuries related to the event</td>
+</tr>
+<tr class="even">
+<td align="left">PROPDMG</td>
+<td align="left">Property damage (number only)</td>
+</tr>
+<tr class="odd">
+<td align="left">PROPDMGEXP</td>
+<td align="left">Property damage multiplier character</td>
+</tr>
+<tr class="even">
+<td align="left">CROPDMG</td>
+<td align="left">Crop damage (number only)</td>
+</tr>
+<tr class="odd">
+<td align="left">CROPDMGEXP</td>
+<td align="left">Crop damage multiplier character</td>
+</tr>
+</tbody>
+</table>
+<p>To avoid biasing our analysis due to unreliable records, it is important to detect and treat observations that are inconsistent. In this analysis, we will employ the following exclusion criteria to the data:</p>
+<ul>
+<li><p>Exclude any observations with FATALITIES &lt; 0, INJURIES &lt; 0, PROPDMG &lt; 0, or CROPDMG &lt; 0;<br /><strong>Reason:</strong> <em>The number of people killed in a storm event cannot be smaller than zero, nor can the property and crop damage caused by that event.</em></p></li>
+<li><p>Exclude any observations with PROPDMGEXP <span class="math">\(\neq\{k,K,m,M,b,B\}\)</span> or CROPDMGEXP PROPDMGEXP <span class="math">\(\neq\{k,K,m,M,b,B\}\)</span>;<br /><strong>Reason:</strong> <em>The <a href="https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf" title="Documentation">National Weather Service Storm Data Documentation</a> (Section 2.7, paragraph 3, page 12) states that:</em></p>
+<pre><code>&quot;Alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions.&quot;  </code></pre></li>
+</ul>
+<p>Thus, any observation with a multiplier character that differs from the specified ones will be considered as uninterpretable.</p>
+<p>Before we proceed to the cleaning of the data, it is important to notice that relatively few valid observations will be removed:</p>
+<pre class="r"><code>valid_exp&lt;-c(&quot;k&quot;,&quot;K&quot;,&quot;m&quot;,&quot;M&quot;,&quot;b&quot;,&quot;B&quot;)
+# How many observations will be dropped by our exclusion criteria?
+(bycase.removals&lt;-c(
+    sum(!(stormdata$PROPDMGEXP %in% valid_exp)&amp;(stormdata$PROPDMG&gt;0)),      # Invalid PROPDMGEXP and PROPDMG &gt; 0
+    sum((stormdata$PROPDMGEXP %in% valid_exp)&amp;(stormdata$PROPDMG&lt;0)),       # Valid PROPDMGEXP and invalid PROPDMG
+    sum(!(stormdata$CROPDMGEXP %in% valid_exp)&amp;(stormdata$CROPDMG&gt;0)),      # Invalid CROPDMGEXP and CROPDMG &gt; 0
+    sum((stormdata$CROPDMGEXP %in% valid_exp)&amp;(stormdata$CROPDMG&lt;0)),       # Valid CROPDMGEXP and invalid CROPDMG
+    sum(stormdata$FATALITIES&lt;0),                                            # Invalid FATALITIES
+    sum(stormdata$INJURIES&lt;0)))                                             # Invalid INJURIES</code></pre>
+<pre><code>## [1] 327   0  15   0   0   0</code></pre>
+<p>There are 327 inconsistencies due to invalid PROPDMGEXP values and 15 due to invalid CROPDMGEXP values. Considering that the database contains over 900,000 observations, the proportion of invalid observations is negligible, and we choose to ignore those for the current analysis.</p>
+<p>Here we extract the relevant columns and apply our exclusion criteria. Notice that since we observed no inconsistencies due to negative values, it is not necessary to apply the “<span class="math">\(\geq 0\)</span>” filter to the numeric columns of interest.</p>
+<pre class="r"><code># Select columns and filter
+stormdata&lt;-stormdata %&gt;%
+    select(EVTYPE,FATALITIES,INJURIES,PROPDMG,PROPDMGEXP,CROPDMG,CROPDMGEXP) %&gt;%
+    filter(PROPDMGEXP %in% valid_exp | PROPDMG==0) %&gt;%
+    filter(CROPDMGEXP %in% valid_exp | CROPDMG==0)</code></pre>
+<p>It is also more convenient for the analysis if the damages are expressed in actual USD values, so that we can more easily summarize the total damages.</p>
+<pre class="r"><code>stormdata$PROPDMGEXP&lt;-factor(toupper(stormdata$PROPDMGEXP)) # uppercase all PROPDMGEXP values
+stormdata$CROPDMGEXP&lt;-factor(toupper(stormdata$CROPDMGEXP)) # uppercase all CROPDMGEXP values
+
+# Convert the values to thousands, millions, billions of dollars
+stormdata$PROPDMG[stormdata$PROPDMGEXP==&quot;K&quot;]&lt;-10^3*stormdata$PROPDMG[stormdata$PROPDMGEXP==&quot;K&quot;]
+stormdata$PROPDMG[stormdata$PROPDMGEXP==&quot;M&quot;]&lt;-10^6*stormdata$PROPDMG[stormdata$PROPDMGEXP==&quot;M&quot;]
+stormdata$PROPDMG[stormdata$PROPDMGEXP==&quot;B&quot;]&lt;-10^9*stormdata$PROPDMG[stormdata$PROPDMGEXP==&quot;B&quot;]
+stormdata$CROPDMG[stormdata$CROPDMGEXP==&quot;K&quot;]&lt;-10^3*stormdata$CROPDMG[stormdata$CROPDMGEXP==&quot;K&quot;]
+stormdata$CROPDMG[stormdata$CROPDMGEXP==&quot;M&quot;]&lt;-10^6*stormdata$CROPDMG[stormdata$CROPDMGEXP==&quot;M&quot;]
+stormdata$CROPDMG[stormdata$CROPDMGEXP==&quot;B&quot;]&lt;-10^9*stormdata$CROPDMG[stormdata$CROPDMGEXP==&quot;B&quot;]
+
+# Remove *EXP columns
+stormdata&lt;-stormdata %&gt;%
+    mutate(PROPDMGEXP=NULL,CROPDMGEXP=NULL)</code></pre>
 </div>
 <div id="results" class="section level2">
 <h2>Results</h2>
@@ -73,21 +186,23 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 <div id="appendix-to-be-removed-assignment-requirements" class="section level3">
 <h3>Appendix (to be removed): Assignment requirements</h3>
 <ol style="list-style-type: decimal">
-<li>Mandatory sections:
+<li>Mandatory sections:</li>
+</ol>
 <ul>
 <li>Synopsis</li>
 <li>Data Processing</li>
 <li>Results</li>
-</ul></li>
+</ul>
+<ol start="2" style="list-style-type: decimal">
 <li><p>All code must be shown</p></li>
 <li><p>Figures: no less than one, no more than three.</p></li>
-<li><p>Assignment description:<br /> <em>Your data analysis must address the following questions:</em></p>
+<li><p>Assignment description:<br /><em>Your data analysis must address the following questions:</em></p></li>
+</ol>
 <ul>
 <li><p><em>Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?</em></p></li>
 <li><p><em>Across the United States, which types of events have the greatest economic consequences?</em></p></li>
 </ul>
-<p><em>Consider writing your report as if it were to be read by a government or municipal manager who might be responsible for preparing for severe weather events and will need to prioritize resources for different types of events. However, there is no need to make any specific recommendations in your report.</em></p></li>
-</ol>
+<p><em>Consider writing your report as if it were to be read by a government or municipal manager who might be responsible for preparing for severe weather events and will need to prioritize resources for different types of events. However, there is no need to make any specific recommendations in your report.</em></p>
 </div>
 </div>
 

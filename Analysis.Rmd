@@ -6,9 +6,201 @@ output: html_document
 keep_md: TRUE
 ---
 
+```{r setup,echo=FALSE,results='hide'}
+# Preload package dplyr to avoid problem due to caching the first chunk 
+# ("down_load") where the package is - at least in thesis - loaded.
+library(dplyr,warn.conflicts = FALSE)
+# I believe that R is not caching the loaded package, so other blocks that 
+# require functions from dplyr were throwing an error when I compiled this Rmd
+# file
+```
+
 ## Synopsis
 
 ## Data Processing
+The data used in this analysis refers to the 
+[U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database][1], 
+for the years between 1950 and 2011. The [actual data file][2] (**Warning**: 
+link to large download) was provided by the [Reproducible Research][3] course 
+instructors.
+
+Two other relevant files to this analysis are the 
+[National Weather Service Storm Data Documentation][4] and the 
+[National Climatic Data Center Storm Events FAQ][5], both also provided by the 
+course instructors.
+
+### Downloading and loading data
+```{r down_load,cache=TRUE}
+# If the data file isn't already on the working folder, download it from the server
+if(!file.exists("StormData.csv.bz2")){
+    download.file(url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2",
+                  destfile = "StormData.csv.bz2",
+                  method = "curl",
+                  quiet = TRUE)
+    }
+
+# If the file isn't already loaded, load it.
+# (go get yourself some coffee while you wait - this may take a while.)
+library(dplyr,warn.conflicts = FALSE)
+if(!exists("stormdata")){
+    stormdata<-tbl_df(read.csv(bzfile("StormData.csv.bz2"),strip.white=TRUE))
+    }
+```
+
+This is a large dataset, with almost a million observations of 37 variables 
+related to storm events. We will only use a subset of these variables for our
+analysis.
+```{r dfdim,dependson="down_load"}
+# Dimension of the data frame
+dim(stormdata)
+
+# Get variable names
+names(stormdata)
+```
+
+### Isolating the variables of interest
+The columns we are interested in are:
+
+----------- -----------------------------------------------
+Variable    Description
+----------- -----------------------------------------------
+EVTYPE      Type of event  
+
+FATALITIES  Number of fatalities related to the event  
+
+INJURIES    Number of injuries related to the event  
+
+PROPDMG     Property damage (number only)  
+
+PROPDMGEXP  Property damage multiplier character
+
+CROPDMG     Crop damage (number only)  
+
+CROPDMGEXP  Crop damage multiplier character
+----------  ------------------------------------------------
+
+To avoid biasing our analysis due to unreliable records, it is important 
+to detect and treat observations that are inconsistent. In this analysis, we 
+will employ the following exclusion criteria to the data:
+
+- Exclude any observations with FATALITIES < 0, INJURIES < 0, PROPDMG < 0, or CROPDMG < 0;  
+**Reason:** _The number of people killed in a storm event cannot be smaller than zero, nor can the property and crop damage caused by that event._  
+
+- Exclude any observations with PROPDMGEXP $\neq\{k,K,m,M,b,B\}$ or CROPDMGEXP PROPDMGEXP $\neq\{k,K,m,M,b,B\}$;  
+**Reason:** _The [National Weather Service Storm Data Documentation][4] (Section 2.7, paragraph 3, page 12) states that:_  
+
+        "Alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions."  
+
+Thus, any observation with a multiplier character that differs from the specified ones will be considered as uninterpretable.
+
+Before we proceed to the cleaning of the data, it is important to notice that relatively few valid observations will be removed:
+
+```{r checkremovals, dependson="down_load"}
+valid_exp<-c("k","K","m","M","b","B")
+# How many observations will be dropped by our exclusion criteria?
+(bycase.removals<-c(
+    sum(!(stormdata$PROPDMGEXP %in% valid_exp)&(stormdata$PROPDMG>0)),      # Invalid PROPDMGEXP and PROPDMG > 0
+    sum((stormdata$PROPDMGEXP %in% valid_exp)&(stormdata$PROPDMG<0)),       # Valid PROPDMGEXP and invalid PROPDMG
+    sum(!(stormdata$CROPDMGEXP %in% valid_exp)&(stormdata$CROPDMG>0)),      # Invalid CROPDMGEXP and CROPDMG > 0
+    sum((stormdata$CROPDMGEXP %in% valid_exp)&(stormdata$CROPDMG<0)),       # Valid CROPDMGEXP and invalid CROPDMG
+    sum(stormdata$FATALITIES<0),                                            # Invalid FATALITIES
+    sum(stormdata$INJURIES<0)))                                             # Invalid INJURIES
+```
+
+There are 327 inconsistencies due to invalid PROPDMGEXP values and 15 due to invalid CROPDMGEXP values. Considering that the database contains over 900,000 observations, the proportion of invalid observations is negligible, and we choose to ignore those for the current analysis.
+
+Here we extract the relevant columns and apply our exclusion criteria. Notice that since we observed no inconsistencies due to negative values, it is not necessary to apply the "$\geq 0$" filter to the numeric columns of interest.
+
+```{r selectfilter,dependson="down_load"}
+# Select columns and filter
+stormdata<-stormdata %>%
+    select(EVTYPE,FATALITIES,INJURIES,PROPDMG,PROPDMGEXP,CROPDMG,CROPDMGEXP) %>%
+    filter(PROPDMGEXP %in% valid_exp | PROPDMG==0) %>%
+    filter(CROPDMGEXP %in% valid_exp | CROPDMG==0)
+```
+
+### Cleaning up the damage values
+It is also more convenient for the analysis if the damages are expressed in actual USD values, so that we can more easily summarize the total damages.
+
+```{r rmEXP,dependson="load"}
+stormdata$PROPDMGEXP<-factor(toupper(stormdata$PROPDMGEXP)) # uppercase all PROPDMGEXP values
+stormdata$CROPDMGEXP<-factor(toupper(stormdata$CROPDMGEXP)) # uppercase all CROPDMGEXP values
+
+# Convert the values to thousands, millions, billions of dollars
+stormdata$PROPDMG[stormdata$PROPDMGEXP=="K"]<-10^3*stormdata$PROPDMG[stormdata$PROPDMGEXP=="K"]
+stormdata$PROPDMG[stormdata$PROPDMGEXP=="M"]<-10^6*stormdata$PROPDMG[stormdata$PROPDMGEXP=="M"]
+stormdata$PROPDMG[stormdata$PROPDMGEXP=="B"]<-10^9*stormdata$PROPDMG[stormdata$PROPDMGEXP=="B"]
+stormdata$CROPDMG[stormdata$CROPDMGEXP=="K"]<-10^3*stormdata$CROPDMG[stormdata$CROPDMGEXP=="K"]
+stormdata$CROPDMG[stormdata$CROPDMGEXP=="M"]<-10^6*stormdata$CROPDMG[stormdata$CROPDMGEXP=="M"]
+stormdata$CROPDMG[stormdata$CROPDMGEXP=="B"]<-10^9*stormdata$CROPDMG[stormdata$CROPDMGEXP=="B"]
+
+# Remove *EXP columns
+stormdata<-mutate(stormdata,PROPDMGEXP=NULL,CROPDMGEXP=NULL)
+```
+
+### Cleaning up the EVTYPE column
+- Astronomical Low Tide  
+- Avalanche  
+- Blizzard  
+- Coastal Flood  
+- Cold/Wind  
+- Chill
+- Debris Flow  
+- Dense Fog  
+- Dense Smoke  
+- Drought  
+- Dust Devil 
+Dust Storm
+Excessive Heat
+Extreme Cold/Wind Chill
+Flash Flood
+Flood
+Frost/Freeze
+Funnel Cloud
+Freezing Fog
+Hail
+Heat
+Heavy Rain
+Heavy Snow
+High Surf
+High Wind
+Hurricane (Typhoon)
+Ice Storm
+Lake-Effect Snow
+Lakeshore Flood
+Lightning
+Marine Hail
+Marine High Wind
+Marine Strong Wind
+Marine Thunderstorm Wind
+Rip Current
+Seiche
+Sleet
+Storm Surge/Tide
+Strong Wind
+Thunderstorm Wind
+Tornado
+Tropical Depression
+Tropical Storm
+Tsunami
+Volcanic Ash
+Waterspout
+Wildfire
+Winter Storm
+Winter Weather
+
+
+
+
+### Summarizing the data set
+Finally, before we proceed to our results, we can summarize the total amount of damage (both in terms of property and of human health) by event type.
+
+
+
+trim <- function (x) gsub("^\\s+|\\s+$", "", x)
+
+
+
 
 ## Results
 
@@ -17,19 +209,26 @@ keep_md: TRUE
 ### Appendix (to be removed): Assignment requirements
 
 1. Mandatory sections: 
-      - Synopsis
-      - Data Processing
-      - Results
-      
+- Synopsis
+- Data Processing
+- Results
+
 2. All code must be shown
 
 3. Figures: no less than one, no more than three.
 
 4. Assignment description:  
-      *Your data analysis must address the following questions:*
-      
-      - *Across the United States, which types of events (as indicated in the EVTYPE variable) are most           harmful with respect to population health?*
-      
-      - *Across the United States, which types of events have the greatest economic consequences?*
-      
-      *Consider writing your report as if it were to be read by a government or municipal manager who might be responsible for preparing for severe weather events and will need to prioritize resources for different types of events. However, there is no need to make any specific recommendations in your report.*
+*Your data analysis must address the following questions:*
+
+- *Across the United States, which types of events (as indicated in the EVTYPE variable) are most           harmful with respect to population health?*
+
+- *Across the United States, which types of events have the greatest economic consequences?*
+
+*Consider writing your report as if it were to be read by a government or municipal manager who might be responsible for preparing for severe weather events and will need to prioritize resources for different types of events. However, there is no need to make any specific recommendations in your report.*
+
+
+[1]: http://www.ncdc.noaa.gov/stormevents/ "NOAA Storm Events Database"
+[2]: https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 "Data file"
+[3]: https://www.coursera.org/course/repdata "Reproducible Research"
+[4]: https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf "Documentation"
+[5]: https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf "FAQ"
