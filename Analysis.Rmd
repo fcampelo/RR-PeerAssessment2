@@ -1,7 +1,7 @@
 ---
-title: "Consequences of Atmospheric Events<br>in the U.S.A."
+title: "Economic and Social Consequences<br>of Atmospheric Events in the U.S.A."
 author: "Felipe Campelo, Ph.D."
-date: "December 17, 2014"
+date: "December 18, 2014"
 output: html_document
 keep_md: TRUE
 ---
@@ -16,6 +16,15 @@ library(dplyr,warn.conflicts = FALSE)
 ```
 
 ## Synopsis
+Storm events are responsible by major impacts in American society, both in terms of economic consequences and harm to the health and life of the population. In this report we investigate the economic and human damages caused by different storm events, based on data available for the 1950-2011 period. From this data, we found that tornados tend to have the largest impact on human health (measured in terms of total number of people dead or injured) and the second largest impact on economical activity (measured in terms of property and crop damages). The largest economical consequences are those of floods, amounting to over 150 billion USD in damages over the 61 years investigated.
+
+## Introduction
+In this report, we seek to obtain answers for two questions of major economic and social importance:
+
+- Across the United States, which types of events are most harmful with respect to population health?  
+- Across the United States, which types of events have the greatest economic consequences?
+
+To address these two questions we will make use of data available from public databases (see next section for details). For this analysis, we will employ a somewhat simplified notion of _damage to human health_ as the total number of people killed or injured by a given storm event; and of _economic consequences_ as the total property and crop damages caused by that event.
 
 ## Data Processing
 The data used in this analysis refers to the 
@@ -42,8 +51,8 @@ if(!file.exists("StormData.csv.bz2")){
 # If the file isn't already loaded, load it.
 # (go get yourself some coffee while you wait - this may take a while.)
 library(dplyr,warn.conflicts = FALSE)
-if(!exists("stormdata")){
-    stormdata<-tbl_df(read.csv(bzfile("StormData.csv.bz2"),strip.white=TRUE))
+if(!exists("stormdata.original")){
+    stormdata.original<-tbl_df(read.csv(bzfile("StormData.csv.bz2"),strip.white=TRUE))
     }
 ```
 
@@ -51,6 +60,9 @@ This is a large dataset, with almost a million observations of 37 variables
 related to storm events. We will only use a subset of these variables for our
 analysis.
 ```{r dfdim,dependson="down_load"}
+# Copy data to a working variable
+stormdata<-stormdata.original
+
 # Dimension of the data frame
 dim(stormdata)
 
@@ -61,23 +73,17 @@ names(stormdata)
 ### Isolating the variables of interest
 The columns we are interested in are:
 
------------ -----------------------------------------------
-Variable    Description
------------ -----------------------------------------------
-EVTYPE      Type of event  
+-----------     |  -----------------------------------------------
+**Variable**    | **Description**
+EVTYPE          | Type of event  
+FATALITIES      | Number of fatalities related to the event  
+INJURIES        | Number of injuries related to the event  
+PROPDMG         | Property damage (number only)  
+PROPDMGEXP      | Property damage multiplier character  
+CROPDMG         | Crop damage (number only)  
+CROPDMGEXP      | Crop damage multiplier character
 
-FATALITIES  Number of fatalities related to the event  
-
-INJURIES    Number of injuries related to the event  
-
-PROPDMG     Property damage (number only)  
-
-PROPDMGEXP  Property damage multiplier character
-
-CROPDMG     Crop damage (number only)  
-
-CROPDMGEXP  Crop damage multiplier character
-----------  ------------------------------------------------
+$\ $  
 
 To avoid biasing our analysis due to unreliable records, it is important 
 to detect and treat observations that are inconsistent. In this analysis, we 
@@ -116,13 +122,14 @@ Here we extract the relevant columns and apply our exclusion criteria. Notice th
 stormdata<-stormdata %>%
     select(EVTYPE,FATALITIES,INJURIES,PROPDMG,PROPDMGEXP,CROPDMG,CROPDMGEXP) %>%
     filter(PROPDMGEXP %in% valid_exp | PROPDMG==0) %>%
-    filter(CROPDMGEXP %in% valid_exp | CROPDMG==0)
+    filter(CROPDMGEXP %in% valid_exp | CROPDMG==0) %>%
+    mutate(EVTYPE=factor(EVTYPE))
 ```
 
 ### Cleaning up the damage values
 It is also more convenient for the analysis if the damages are expressed in actual USD values, so that we can more easily summarize the total damages.
 
-```{r rmEXP,dependson="load"}
+```{r rmEXP,dependson="down_load"}
 stormdata$PROPDMGEXP<-factor(toupper(stormdata$PROPDMGEXP)) # uppercase all PROPDMGEXP values
 stormdata$CROPDMGEXP<-factor(toupper(stormdata$CROPDMGEXP)) # uppercase all CROPDMGEXP values
 
@@ -139,93 +146,228 @@ stormdata<-mutate(stormdata,PROPDMGEXP=NULL,CROPDMGEXP=NULL)
 ```
 
 ### Cleaning up the EVTYPE column
-- Astronomical Low Tide  
-- Avalanche  
-- Blizzard  
-- Coastal Flood  
-- Cold/Wind  
-- Chill
-- Debris Flow  
-- Dense Fog  
-- Dense Smoke  
-- Drought  
-- Dust Devil 
-Dust Storm
-Excessive Heat
-Extreme Cold/Wind Chill
-Flash Flood
-Flood
-Frost/Freeze
-Funnel Cloud
-Freezing Fog
-Hail
-Heat
-Heavy Rain
-Heavy Snow
-High Surf
-High Wind
-Hurricane (Typhoon)
-Ice Storm
-Lake-Effect Snow
-Lakeshore Flood
-Lightning
-Marine Hail
-Marine High Wind
-Marine Strong Wind
-Marine Thunderstorm Wind
-Rip Current
-Seiche
-Sleet
-Storm Surge/Tide
-Strong Wind
-Thunderstorm Wind
-Tornado
-Tropical Depression
-Tropical Storm
-Tsunami
-Volcanic Ash
-Waterspout
-Wildfire
-Winter Storm
-Winter Weather
+The [National Weather Service Storm Data Documentation][4] (Section 2.1.1, Table I, page 6) recognizes 48 categories for storm events. These categories are entered here as a vector:
 
+```{r catvector,dependson="down_load"}
+catnames<-c(
+"Astronomical Low Tide", "Avalanche", "Blizzard", "Coastal Flood",
+"Cold", "Wind", "Chill", "Debris Flow", "Dense Fog",
+"Dense Smoke", "Drought", "DustDevil", "DustStorm",
+"ExcessiveHeat", "ExtremeCold", "WindChill", "FlashFlood",
+"Flood", "Frost", "Freeze", "Funnel Cloud",
+"Freezing Fog", "Hail", "Heat", "Heavy Rain",
+"Heavy Snow", "High Surf", "High Wind", "Hurricane (Typhoon)",
+"IceStorm", "Lake-Effect Snow", "Lakeshore Flood", "Lightning",
+"Marine Hail", "Marine High Wind", "Marine Strong Wind", "Marine Thunderstorm Wind",
+"Rip Current", "Seiche", "Sleet", "Storm Surge",
+"Tide", "Strong Wind", "Thunderstorm Wind", "Tornado",
+"Tropical Depression", "Tropical Storm", "Tsunami", "Volcanic Ash",
+"Waterspout", "Wildfire", "Winter Storm", "Winter Weather")
+```
 
+However, a quick examination of the EVTYPE column of the dataset shows that there are many more ways entries are registered:
 
+```{r check_evtype,dependson="down_load"}
+length(unique(stormdata$EVTYPE))
+```
+
+This multitude of labels is possibly due to the long time span of the records, with entries as far back as 1950, evolving standards and multiple people entering records both digitally and on paper. 
+
+First, lets isolate the observations that do not perfectly match one of the official categories. To avoid losing observations due to trivial typos, we can perform a few operations prior to the matching:  
+
+- remove all white spaces from the event names, both in our reference vector and on the EVTYPE variable;  
+
+- change all words to upper-case, both in our reference vector and on the EVTYPE variable;
+
+```{r clean_evtype1,dependson="down_load",cache=TRUE}
+# define function to remove all white spaces from a character string
+remspaces<-function(x){toupper(gsub("\\s","",x))}
+
+# Remove spaces and transform to uppercase: catnames and EVTYPE
+catnames<-sapply(catnames,remspaces)
+stormdata$EVTYPE<-factor(sapply(stormdata$EVTYPE,remspaces))
+```
+
+Now lets isolate the observations that do not perfectly match one of the categories defined above, and check which proportion of the data is incorrectly labeled.
+
+```{r clean_evtype2,dependson="clean_evtype1"}
+# Isolate non-matching event types
+stormdata.nomatch<-filter(stormdata,!(EVTYPE %in% catnames))
+
+# What proportion of the data would we lose if we just discarded the non-matching observations?
+dim(stormdata.nomatch)[1]/dim(stormdata)[1]
+```
+
+Discarding the non-matching observations would lead to the loss of almost 30% of all observations, which could clearly affect our analysis. To try to recover a few of these observations, we can start by finding which entries are most common in the non-matching group. The first 10 are:
+```{r clean_evtype2-5,dependson="clean_evtype1"}
+nmtch.tbl<-sort(table(stormdata.nomatch$EVTYPE),decreasing = T)
+print(nmtch.tbl[1:10])
+```
+
+The large majority of non-matching names are due to relatively few labels, possibly a legacy from a previous standard. Just by consolidating the ten most frequent labels from the non-matching group, we would reduce the amount of lost data by:
+
+```{r clean_evtype3,dependson="clean_evtype1"}
+sum(as.numeric(nmtch.tbl[1:10]))/dim(stormdata.nomatch)[1]
+```
+
+That's over 96% of the mis-labeled data being recovered. Lets do it:
+
+```{r clean_evtype4,dependson="clean_evtype1"}
+# Correct labels for the 10 most common occurrences of mislabeling
+rightlabels10<-c("THUNDERSTORMWIND","THUNDERSTORMWIND",
+                 "MARINETHUNDERSTORMWIND","FLOOD",
+                 "HIGHWIND","WILDFIRE",
+                 "FREEZE","WINTERWEATHER",
+                 "THUNDERSTORMWIND","COLD")
+
+# Fix 10 most common wrong labels 
+for (i in 1:10){
+    mislabel<-names(nmtch.tbl[i])
+    stormdata$EVTYPE[which(stormdata$EVTYPE==mislabel[i])]<-rightlabels10[i]
+}
+
+# Isolate the remaining mislabeled observations
+stormdata.nomatch<-filter(stormdata,!(EVTYPE %in% catnames))
+
+# Proportion of still-mislabeled data
+dim(stormdata.nomatch)[1]/dim(stormdata)[1]
+```
+
+Now we have only about 5% of the observations being mislabeled. We can recover a few more just using a few simple operations:
+
+```{r clean_evtype5,dependson="clean_evtype1"}
+# Relabel events that simply have a letter "S" added after a valid label (e.g., "FORESTFIRES" instead of "FORESTFIRE").
+stormdata$EVTYPE<-as.character(stormdata$EVTYPE)
+for (i in 1:length(catnames)){
+    stormdata$EVTYPE[which(stormdata$EVTYPE==paste0(catnames[i],"S"))]<-catnames[i]
+}
+
+# Remove events that are simply given as "summaries" - there are a few:
+length(grep("summary",
+            stormdata$EVTYPE,
+            ignore.case = TRUE))
+stormdata<-filter(stormdata,
+                  !grepl("summary",
+                         stormdata$EVTYPE,
+                         ignore.case = TRUE))
+
+# Relabel mislabeled hurricanes:
+stormdata$EVTYPE[grep("hurricane",
+                      stormdata$EVTYPE,
+                      ignore.case = TRUE)]<-"HURRICANE(TYPHOON)"
+
+# Again, isolate the remaining mislabeled observations
+stormdata.nomatch<-filter(stormdata,!(EVTYPE %in% catnames))
+
+# Proportion of still-mislabeled data
+dim(stormdata.nomatch)[1]/dim(stormdata)[1]     
+```
+
+Only 2.8% of the data is still mislabeled. Before we discard these completely, lets just check how much damage (property and crop) and how many casualties (fatalities/injuries) are still contained in the unlabeled data:
+
+```{r clean_evtype6,dependson="clean_evtype1"}
+# Absolute values
+damage<-sum(stormdata.nomatch$PROPDMG)+sum(stormdata.nomatch$CROPDMG)
+casualties<-sum(stormdata.nomatch$FATALITIES)+sum(stormdata.nomatch$INJURIES)
+
+# Proportions
+damage/(sum(stormdata$PROPDMG)+sum(stormdata$CROPDMG))
+casualties/(sum(stormdata$FATALITIES)+sum(stormdata$INJURIES))
+```
+
+Only about 3% of the casualties and about 6% of the total damage are contained in the unlabeled data, so we probably don't have to worry too much about discarding it - we have already passed the point of diminishing returns for our efforts into relabeling the EVTYPE variable, and will proceed using only those observations that are already correctly labeled. 
+
+```{r clean_evtype7,dependson="clean_evtype1"}
+stormdata<-filter(stormdata,(EVTYPE %in% catnames))
+```
 
 ### Summarizing the data set
-Finally, before we proceed to our results, we can summarize the total amount of damage (both in terms of property and of human health) by event type.
+Finally, before we proceed to present our results, we can summarize the total amount of damage (both in terms of property and of human health) by event type.
 
-
-
-trim <- function (x) gsub("^\\s+|\\s+$", "", x)
-
-
-
+```{r summarize,dependson="clean_evtype1"}
+# Include columns for total damages and casualties and summarize results (in terms of these two new columns) by type of event.
+stormdata<-stormdata %>%
+    mutate(TotalDamage=CROPDMG+PROPDMG,
+           TotalCasualties=FATALITIES+INJURIES) %>%
+    group_by(EVTYPE) %>%
+    summarize(Damages=sum(TotalDamage),
+              Casualties=sum(TotalCasualties))
+```
 
 ## Results
+After tidying up, cleaning, and summarizing the available data, it is now possible to answer the two questions posed at the beginning of this report:
 
-## Conclusions
+        Across the United States, which types of events are most harmful with respect to population health?
 
-### Appendix (to be removed): Assignment requirements
+To answer this particular question, lets arrange the summarized dataset obtained in the previous section by the total number of casualties by event, and investigate graphically the cumulative health effects (again, defined as the total number of people dead or injured) of each event.
 
-1. Mandatory sections: 
-- Synopsis
-- Data Processing
-- Results
+```{r healthdamage,dependson="clean_evtype1",fig.align='center',fig.height=7.7,fig.width=12}
+# arrange by decreasing number of casualties
+stormdata<-arrange(stormdata,desc(Casualties))
 
-2. All code must be shown
+# Generate plot of casualties per event
+library(ggplot2,quietly = TRUE,warn.conflicts = FALSE)
+m<-ggplot(stormdata,aes(EVTYPE,Casualties))
+m + geom_bar(stat="identity") + 
+    scale_x_discrete(limits=stormdata$EVTYPE) +
+    ggtitle("Total Casualties (1950-2011) by Event Type") +
+    xlab("Event Type") + 
+    ylab("Casualties") +
+    annotate("rect",
+             xmin = 2, xmax = 21.5, 
+             ymin = 85000, ymax = max(stormdata$Casualties),
+             alpha = .2) +
+    annotate("text",
+             x = c(2.25,2.25), 
+             y = c(94000,89000), 
+             label = c("Event type with most casualties: TORNADO", 
+                       paste(max(stormdata$Casualties),"casualties")),
+             hjust=0,
+             fontface="bold") + 
+    theme(axis.title.y = element_text(size = rel(1.25), angle = 90),
+          axis.title.x = element_text(size = rel(1.25), angle = 0),
+          axis.text.x = element_text(size = rel(.85),angle=45,hjust=1),
+          axis.text.y = element_text(angle=0),
+          plot.title = element_text(size = rel(1.5)))
+```
 
-3. Figures: no less than one, no more than three.
+By far, tornados are the most damaging event (in terms of deaths and injuries) when integrated over time, surpassing all other events combined in terms of total number of casualties in the period under study.
 
-4. Assignment description:  
-*Your data analysis must address the following questions:*
+        Across the United States, which types of events have the greatest economic consequences?
 
-- *Across the United States, which types of events (as indicated in the EVTYPE variable) are most           harmful with respect to population health?*
+Similarly to what was done for the previous question, lets arrange the dataset by the total damage caused, and investigate graphically the cumulative economic consequences (property and crop damage) of each event.
 
-- *Across the United States, which types of events have the greatest economic consequences?*
+```{r economicdamage,dependson="clean_evtype1",fig.align='center',fig.height=7.7,fig.width=12}
+# arrange by decreasing damages
+stormdata<-arrange(stormdata,desc(Damages))
 
-*Consider writing your report as if it were to be read by a government or municipal manager who might be responsible for preparing for severe weather events and will need to prioritize resources for different types of events. However, there is no need to make any specific recommendations in your report.*
+# Generate plot of casualties per event
+library(ggplot2,quietly = TRUE,warn.conflicts = FALSE)
+m<-ggplot(stormdata,aes(EVTYPE,Damages/1e9))
+m + geom_bar(stat="identity") + 
+    scale_x_discrete(limits=stormdata$EVTYPE) +
+    ggtitle("Total Damages (1950-2011) by Event Type") +
+    xlab("Event Type") + 
+    ylab("Damages (Billions USD)") +
+     annotate("rect",
+              xmin = 2, xmax = 21.5, 
+              ymin = 130, ymax = max(stormdata$Damages/1e9),
+              alpha = .2) +
+     annotate("text",
+              x = c(2.25,2.25), 
+              y = c(145,135), 
+              label = c("Event type with largest damages: FLOOD", 
+                        paste("USD",round(max(stormdata$Damages/1e9),1),"billion")),
+              hjust=0,
+              fontface="bold") + 
+    theme(axis.title.y = element_text(size = rel(1.25), angle = 90),
+          axis.title.x = element_text(size = rel(1.25), angle = 0),
+          axis.text.x = element_text(size = rel(.85),angle=45,hjust=1),
+          axis.text.y = element_text(angle=0),
+          plot.title = element_text(size = rel(1.5)))
+```
 
+Floods are the most damaging event (in terms of economic losses) when integrated over time. Tornados, which hold the first place in terms of casualties, also figure prominently as the second most economically damaging event in the 1950-2011 period, with over 50 billion dollars in property and crop damages.
 
 [1]: http://www.ncdc.noaa.gov/stormevents/ "NOAA Storm Events Database"
 [2]: https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2 "Data file"
